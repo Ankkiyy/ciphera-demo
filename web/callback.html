@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CiphERA Callback</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #020617;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        main {
+            width: 100%;
+            max-width: 720px;
+            padding: 2rem;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 1rem;
+            box-shadow: 0 30px 80px rgba(15, 23, 42, 0.8);
+        }
+        h1 {
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        pre {
+            background: rgba(2, 6, 23, 0.8);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            overflow-x: auto;
+        }
+        .token-section {
+            display: grid;
+            gap: 1rem;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            color: #020617;
+            font-weight: bold;
+        }
+        #status {
+            min-height: 1.5rem;
+            color: #38bdf8;
+        }
+        a {
+            color: #38bdf8;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js" integrity="sha384-F7rsMgwjID/qBzfHrrraZGs9oIf1GI4Z7FTZwdOPHc67gR5impCBM+tg7jbH+aZy" crossorigin="anonymous"></script>
+</head>
+<body>
+    <main>
+        <h1>CiphERA Identity Receipt</h1>
+        <section class="token-section">
+            <div id="status"></div>
+            <div>
+                <strong>JWT Assertion</strong>
+                <pre id="token-display"></pre>
+            </div>
+            <div>
+                <strong>Decoded Claims</strong>
+                <pre id="claims-display"></pre>
+            </div>
+            <button id="copy-btn" type="button">Copy Token</button>
+            <p>
+                Integrate this token with your relying party app by verifying with
+                <code>HS256</code> using the shared secret <code>CIPHERA_KEY</code>:
+            </p>
+            <pre><code>import jwt
+jwt.decode(token, "CIPHERA_KEY", algorithms=["HS256"])</code></pre>
+            <p>
+                Return to <a href="login.html">login</a> or <a href="register.html">register</a> to issue a new assertion.
+            </p>
+        </section>
+    </main>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const tokenDisplay = document.getElementById('token-display');
+        const claimsDisplay = document.getElementById('claims-display');
+        const copyBtn = document.getElementById('copy-btn');
+
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+
+        if (!token) {
+            statusEl.textContent = 'Missing token parameter. Redirecting back to login.';
+            setTimeout(() => window.location.href = 'login.html', 4000);
+        } else {
+            tokenDisplay.textContent = token;
+            try {
+                const decoded = window.jwt_decode(token);
+                claimsDisplay.textContent = JSON.stringify(decoded, null, 2);
+                statusEl.textContent = 'Identity assertion received and decoded locally.';
+            } catch (error) {
+                claimsDisplay.textContent = 'Unable to decode token. Verify the shared secret.';
+                statusEl.textContent = `Token decode error: ${error.message}`;
+            }
+        }
+
+        copyBtn.addEventListener('click', async () => {
+            if (!token) {
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(token);
+                statusEl.textContent = 'Token copied to clipboard.';
+            } catch (error) {
+                statusEl.textContent = 'Unable to copy token. Copy manually from the display above.';
+            }
+        });
+    </script>
+</body>
+</html>

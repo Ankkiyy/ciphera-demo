@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CiphERA Sign In</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #020617;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        main {
+            width: 100%;
+            max-width: 960px;
+            padding: 2rem;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 1rem;
+            box-shadow: 0 30px 80px rgba(8, 47, 73, 0.8);
+        }
+        h1 {
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .camera-section {
+            display: grid;
+            gap: 1rem;
+        }
+        video, canvas {
+            width: 100%;
+            max-height: 360px;
+            border-radius: 0.75rem;
+            background: #0f172a;
+        }
+        .actions {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 0.75rem;
+            padding: 0.85rem 1.75rem;
+            font-size: 1rem;
+            font-weight: bold;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        button.primary {
+            background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+            color: #020617;
+        }
+        button.secondary {
+            background: rgba(148, 163, 184, 0.2);
+            color: inherit;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #status {
+            min-height: 1.5rem;
+            font-size: 0.95rem;
+            color: #22d3ee;
+        }
+        #votes {
+            background: rgba(15, 23, 42, 0.7);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-size: 0.9rem;
+        }
+        #votes ul {
+            margin: 0;
+            padding-left: 1.25rem;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Sign in with CiphERA</h1>
+        <section class="camera-section">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="snapshot" width="640" height="480" style="display:none;"></canvas>
+            <div class="actions">
+                <button class="secondary" type="button" id="capture-btn">Capture Frame</button>
+                <button class="primary" type="button" id="signin-btn">Request Consensus</button>
+            </div>
+            <div id="status"></div>
+            <div id="votes" style="display:none;">
+                <strong>Verifier consensus log</strong>
+                <ul id="votes-list"></ul>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const API_BASE = window.CIPHERA_GATEWAY || 'http://127.0.0.1:8000';
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('snapshot');
+        const statusEl = document.getElementById('status');
+        const votesContainer = document.getElementById('votes');
+        const votesList = document.getElementById('votes-list');
+        const captureBtn = document.getElementById('capture-btn');
+        const signinBtn = document.getElementById('signin-btn');
+        let hasSnapshot = false;
+
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                video.srcObject = stream;
+            } catch (error) {
+                statusEl.textContent = 'Camera access denied. Please enable video permissions to continue.';
+                captureBtn.disabled = true;
+                signinBtn.disabled = true;
+            }
+        }
+
+        function captureSnapshot() {
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            hasSnapshot = true;
+            statusEl.textContent = 'Snapshot captured. Requesting verifier consensus...';
+        }
+
+        function canvasBlob(canvasElement) {
+            return new Promise(resolve => canvasElement.toBlob(resolve, 'image/jpeg', 0.92));
+        }
+
+        function renderVotes(votes = []) {
+            votesList.innerHTML = '';
+            votes.forEach((vote) => {
+                const item = document.createElement('li');
+                if (vote.error) {
+                    item.textContent = `${vote.node}: error (${vote.error})`;
+                } else if (vote.verified) {
+                    item.textContent = `${vote.node}: verified ${vote.user} (distance ${vote.distance?.toFixed(4) ?? 'n/a'})`;
+                } else {
+                    item.textContent = `${vote.node}: rejected (${vote.reason || 'no_match'})`;
+                }
+                votesList.appendChild(item);
+            });
+            votesContainer.style.display = votes.length ? 'block' : 'none';
+        }
+
+        async function requestSignin() {
+            statusEl.textContent = '';
+            if (!hasSnapshot) {
+                captureSnapshot();
+            }
+
+            const blob = await canvasBlob(canvas);
+            if (!blob) {
+                statusEl.textContent = 'Unable to capture image. Try again.';
+                return;
+            }
+
+            captureBtn.disabled = true;
+            signinBtn.disabled = true;
+            statusEl.textContent = 'Contacting verifier network...';
+
+            const formData = new FormData();
+            formData.append('file', blob, 'signin.jpg');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/signin`, {
+                    method: 'POST',
+                    body: formData,
+                });
+                const result = await response.json();
+                renderVotes(result?.votes);
+
+                if (!response.ok) {
+                    throw new Error(result?.message || 'Sign-in failed.');
+                }
+
+                if (result?.authenticated && result?.token) {
+                    statusEl.textContent = 'Consensus achieved. Redirecting with identity assertion...';
+                    const encoded = encodeURIComponent(result.token);
+                    window.location.href = `callback.html?token=${encoded}`;
+                } else {
+                    statusEl.textContent = 'Consensus not reached. Please retry.';
+                    hasSnapshot = false;
+                }
+            } catch (error) {
+                statusEl.textContent = `Sign-in error: ${error.message}`;
+            } finally {
+                captureBtn.disabled = false;
+                signinBtn.disabled = false;
+            }
+        }
+
+        captureBtn.addEventListener('click', () => {
+            captureSnapshot();
+            statusEl.textContent = 'Snapshot captured. Press Request Consensus to continue.';
+        });
+        signinBtn.addEventListener('click', requestSignin);
+        setupCamera();
+    </script>
+</body>
+</html>
