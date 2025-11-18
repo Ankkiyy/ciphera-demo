@@ -28,22 +28,13 @@
             margin-bottom: 1rem;
             text-align: center;
         }
-        .camera-section {
-            display: grid;
-            gap: 1rem;
-        }
-        video, canvas {
-            width: 100%;
-            max-height: 360px;
-            border-radius: 0.75rem;
-            background: #0f172a;
-        }
-        .actions {
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
+        .camera-section { display: grid; gap: 1rem; }
+        video, canvas { width: 100%; max-height: 360px; border-radius: 0.75rem; background: #0f172a; }
+        .tm-wrapper { display: grid; gap: 0.75rem; padding: 1rem; border-radius: 0.75rem; background: rgba(2, 6, 23, 0.7); }
+        .tm-title { font-weight: bold; font-size: 1.05rem; }
+        #webcam-container canvas { width: 100%; border-radius: 0.75rem; }
+        #label-container div { padding: 0.25rem 0; font-size: 0.95rem; }
+        .actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
         button {
             cursor: pointer;
             border: none;
@@ -86,6 +77,15 @@
     <main>
         <h1>Sign in with CiphERA</h1>
         <section class="camera-section">
+            <div class="tm-wrapper">
+                <div class="tm-title">Teachable Machine Image Model</div>
+                <button class="secondary" type="button" id="tm-start-btn" onclick="init()">Start Model</button>
+                <div id="webcam-container"></div>
+                <div id="label-container"></div>
+                <div id="label-output" style="font-size:0.95rem; color:#5eead4;"></div>
+                <button class="primary" type="button" id="classifier-btn">Fetch Profile by Label</button>
+                <div id="classifier-output" style="font-size:0.95rem; color:#5eead4;"></div>
+            </div>
             <video id="video" autoplay playsinline></video>
             <canvas id="snapshot" width="640" height="480" style="display:none;"></canvas>
             <div class="actions">
@@ -100,6 +100,8 @@
         </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script>
         const API_BASE = window.CIPHERA_GATEWAY || 'http://127.0.0.1:8000';
         const video = document.getElementById('video');
@@ -109,7 +111,19 @@
         const votesList = document.getElementById('votes-list');
         const captureBtn = document.getElementById('capture-btn');
         const signinBtn = document.getElementById('signin-btn');
+    const tmStartBtn = document.getElementById('tm-start-btn');
+    const classifierBtn = document.getElementById('classifier-btn');
+    const tmLabelOutput = document.getElementById('label-output');
+    const tmResultOutput = document.getElementById('classifier-output');
+        const webcamContainer = document.getElementById('webcam-container');
+        const labelContainer = document.getElementById('label-container');
         let hasSnapshot = false;
+        let tmModel = null;
+        let tmWebcam = null;
+        let tmLoopHandle = null;
+        let tmPredictionSummary = null;
+        let tmMaxPredictions = 0;
+        const TM_URL = './';
 
         async function setupCamera() {
             try {
@@ -131,6 +145,194 @@
 
         function canvasBlob(canvasElement) {
             return new Promise(resolve => canvasElement.toBlob(resolve, 'image/jpeg', 0.92));
+        }
+
+        async function init() {
+            if (tmModel) {
+                statusEl.textContent = 'Teachable Machine model already running.';
+                return;
+            }
+
+            if (typeof tmImage === 'undefined') {
+                statusEl.textContent = 'Teachable Machine library not available.';
+                return;
+            }
+
+            try {
+                tmStartBtn.disabled = true;
+                tmStartBtn.textContent = 'Loading...';
+
+                const modelURL = `${TM_URL}model.json`;
+                const metadataURL = `${TM_URL}metadata.json`;
+                tmModel = await tmImage.load(modelURL, metadataURL);
+                tmMaxPredictions = tmModel.getTotalClasses();
+
+                tmWebcam = new tmImage.Webcam(320, 240, true);
+                await tmWebcam.setup();
+                await tmWebcam.play();
+
+                webcamContainer.innerHTML = '';
+                webcamContainer.appendChild(tmWebcam.canvas);
+
+                labelContainer.innerHTML = '';
+                for (let i = 0; i < tmMaxPredictions; i += 1) {
+                    labelContainer.appendChild(document.createElement('div'));
+                }
+
+                const loop = async () => {
+                    if (!tmWebcam) {
+                        return;
+                    }
+                    tmWebcam.update();
+                    await predict();
+                    tmLoopHandle = window.requestAnimationFrame(loop);
+                };
+
+                loop();
+                tmStartBtn.textContent = 'Model Running';
+                statusEl.textContent = 'Classifier active. Use Fetch Profile by Label to pull data.';
+            } catch (error) {
+                tmStartBtn.disabled = false;
+                tmStartBtn.textContent = 'Start Model';
+                statusEl.textContent = `Unable to start Teachable Machine model: ${error.message}`;
+                tmModel = null;
+                if (tmWebcam) {
+                    tmWebcam.stop();
+                    tmWebcam = null;
+                }
+            }
+        }
+
+        async function predict() {
+            if (!tmModel || !tmWebcam) {
+                return;
+            }
+
+            const predictions = await tmModel.predict(tmWebcam.canvas);
+            if (!predictions || !predictions.length) {
+                tmPredictionSummary = null;
+                tmLabelOutput.textContent = '';
+                return;
+            }
+
+            const structured = predictions.map((entry) => ({
+                label: entry.className,
+                probability: Number(entry.probability.toFixed(4)),
+            }));
+
+            structured.forEach((entry, index) => {
+                if (labelContainer.childNodes[index]) {
+                    labelContainer.childNodes[index].textContent = `${entry.label}: ${(entry.probability * 100).toFixed(1)}%`;
+                }
+            });
+
+            const top = structured.reduce((best, candidate) => (
+                candidate.probability > best.probability ? candidate : best
+            ), structured[0]);
+
+            tmPredictionSummary = {
+                label: top.label,
+                probability: top.probability,
+                predictions: structured,
+                timestamp: new Date().toISOString(),
+            };
+
+            tmLabelOutput.textContent = `Top label: ${top.label} (${(top.probability * 100).toFixed(1)}%)`;
+        }
+
+        async function fetchByClassifier() {
+            if (!tmPredictionSummary) {
+                statusEl.textContent = 'No classifier label available. Ensure the model is running and detecting your face.';
+                return;
+            }
+
+            classifierBtn.disabled = true;
+            tmResultOutput.innerHTML = '';
+            statusEl.textContent = 'Querying nodes for classifier matches...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/signin/classifier`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label: tmPredictionSummary.label }),
+                });
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result?.message || 'Classifier lookup failed.');
+                }
+
+                renderClassifierResults(result);
+                statusEl.textContent = 'Classifier lookup complete. Review the aggregated data below.';
+            } catch (error) {
+                statusEl.textContent = `Classifier lookup error: ${error.message}`;
+            } finally {
+                classifierBtn.disabled = false;
+            }
+        }
+
+        function renderClassifierResults(result) {
+            const container = document.createElement('div');
+            container.style.marginTop = '1rem';
+            container.style.background = 'rgba(15, 23, 42, 0.7)';
+            container.style.padding = '1rem';
+            container.style.borderRadius = '0.75rem';
+
+            const header = document.createElement('div');
+            header.textContent = `Label: ${result?.label || 'n/a'}`;
+            header.style.fontWeight = 'bold';
+            container.appendChild(header);
+
+            const matches = result?.matches || [];
+            if (!matches.length) {
+                const empty = document.createElement('div');
+                empty.textContent = 'No matching profiles found across verifier nodes.';
+                container.appendChild(empty);
+                tmResultOutput.innerHTML = '';
+                tmResultOutput.appendChild(container);
+                return;
+            }
+
+            const list = document.createElement('ul');
+            list.style.margin = '0.75rem 0 0';
+            list.style.paddingLeft = '1.25rem';
+            matches.forEach((match) => {
+                const item = document.createElement('li');
+                const sources = (match.sources || []).map((src) => src.node).join(', ');
+                const profile = match.profile || {};
+                const classification = profile.classification;
+                const classificationData = typeof classification === 'object' && classification !== null
+                    ? classification
+                    : { label: classification };
+                const confidence = match.sources?.[0]?.probability ?? classificationData?.probability;
+                const labelText = classificationData?.label || result?.label || 'n/a';
+                const confidenceText = typeof confidence === 'number'
+                    ? `${(confidence * 100).toFixed(1)}%`
+                    : 'n/a';
+
+                item.innerHTML = `
+                    <strong>${match.name || 'Unknown'}</strong> (${match.email || 'no email'})<br/>
+                    Nodes: ${sources || 'n/a'}<br/>
+                    Label: ${labelText}<br/>
+                    Classifier confidence: ${confidenceText}
+                `;
+                list.appendChild(item);
+            });
+            container.appendChild(list);
+
+            tmResultOutput.innerHTML = '';
+            tmResultOutput.appendChild(container);
+        }
+
+        function shutdownTeachableMachine() {
+            if (tmLoopHandle) {
+                window.cancelAnimationFrame(tmLoopHandle);
+                tmLoopHandle = null;
+            }
+            if (tmWebcam) {
+                tmWebcam.stop();
+                tmWebcam = null;
+            }
         }
 
         function renderVotes(votes = []) {
@@ -201,7 +403,9 @@
             statusEl.textContent = 'Snapshot captured. Press Request Consensus to continue.';
         });
         signinBtn.addEventListener('click', requestSignin);
+        classifierBtn.addEventListener('click', fetchByClassifier);
         setupCamera();
+        window.addEventListener('beforeunload', shutdownTeachableMachine);
     </script>
 </body>
 </html>
