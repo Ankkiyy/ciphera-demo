@@ -37,10 +37,6 @@
         input:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25); }
         .camera-wrapper { display: grid; gap: 1rem; }
         video, canvas { width: 100%; max-height: 360px; border-radius: 0.75rem; background: #020617; }
-        .tm-wrapper { display: grid; gap: 0.75rem; padding: 1rem; border-radius: 0.75rem; background: rgba(2, 6, 23, 0.7); }
-        .tm-title { font-weight: bold; font-size: 1.05rem; }
-        #webcam-container canvas { width: 100%; border-radius: 0.75rem; }
-        #label-container div { padding: 0.25rem 0; font-size: 0.95rem; }
         .actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
         button {
             cursor: pointer;
@@ -121,16 +117,11 @@
                 </div>
             </div>
             <div class="camera-wrapper">
-                <div class="tm-wrapper">
-                    <div class="tm-title">Teachable Machine Image Model</div>
-                    <button class="secondary" type="button" id="tm-start-btn" onclick="init()">Start Model</button>
-                    <div id="webcam-container"></div>
-                    <div id="label-container"></div>
-                </div>
                 <video id="video" autoplay playsinline></video>
                 <canvas id="snapshot" width="640" height="480" style="display:none;"></canvas>
                 <div class="actions">
-                    <button class="secondary" type="button" id="capture-btn">Capture Frame</button>
+                    <button class="secondary" type="button" id="capture-btn">Capture Samples</button>
+                    <button class="secondary" type="button" id="reset-btn">Reset Samples</button>
                     <button class="primary" type="submit" id="submit-btn">Broadcast Registration</button>
                 </div>
             </div>
@@ -138,8 +129,6 @@
         </form>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script>
         const API_BASE = window.CIPHERA_GATEWAY || 'http://127.0.0.1:8000';
         const video = document.getElementById('video');
@@ -147,15 +136,10 @@
         const statusEl = document.getElementById('status');
         const captureBtn = document.getElementById('capture-btn');
         const submitBtn = document.getElementById('submit-btn');
+        const resetBtn = document.getElementById('reset-btn');
         let hasSnapshot = false;
-        const webcamContainer = document.getElementById('webcam-container');
-        const labelContainer = document.getElementById('label-container');
-        let tmModel = null;
-        let tmWebcam = null;
-        let tmLoopHandle = null;
-        let tmPredictionSummary = null;
-        let tmMaxPredictions = 0;
-        const TM_URL = './';
+        const REQUIRED_SAMPLES = 10;
+        const capturedSamples = [];
 
         async function setupCamera() {
             try {
@@ -168,134 +152,54 @@
             }
         }
 
-        function captureSnapshot() {
+        async function captureSnapshot() {
             const context = canvas.getContext('2d');
-            if (tmWebcam && tmWebcam.canvas) {
-                context.drawImage(tmWebcam.canvas, 0, 0, canvas.width, canvas.height);
-            } else {
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            }
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
             hasSnapshot = true;
-            statusEl.textContent = 'Snapshot captured. Submit to broadcast registration.';
+
+            const blob = await canvasBlob(canvas);
+            if (!blob) {
+                statusEl.textContent = 'Unable to capture image. Try again.';
+                return;
+            }
+
+            capturedSamples.push(blob);
+            const total = capturedSamples.length;
+            statusEl.textContent = `Captured ${total}/${REQUIRED_SAMPLES} samples.`;
+        }
+
+        async function captureSamplesBatch(required = REQUIRED_SAMPLES) {
+            const needed = Math.max(required - capturedSamples.length, 0);
+            if (needed === 0) {
+                statusEl.textContent = `Captured ${capturedSamples.length}/${REQUIRED_SAMPLES} samples.`;
+                return;
+            }
+
+            captureBtn.disabled = true;
+            try {
+                for (let i = 0; i < needed; i += 1) {
+                    await captureSnapshot();
+                    await new Promise((resolve) => setTimeout(resolve, 150));
+                }
+            } finally {
+                captureBtn.disabled = false;
+            }
         }
 
         function canvasBlob(canvasElement) {
             return new Promise(resolve => canvasElement.toBlob(resolve, 'image/jpeg', 0.92));
         }
 
-        async function init() {
-            if (tmModel) {
-                statusEl.textContent = 'Teachable Machine model already running.';
-                return;
-            }
-
-            if (typeof tmImage === 'undefined') {
-                statusEl.textContent = 'Teachable Machine library not available.';
-                return;
-            }
-
-            const button = document.getElementById('tm-start-btn');
-            try {
-                button.disabled = true;
-                button.textContent = 'Loading...';
-
-                const modelURL = `${TM_URL}model.json`;
-                const metadataURL = `${TM_URL}metadata.json`;
-                tmModel = await tmImage.load(modelURL, metadataURL);
-                tmMaxPredictions = tmModel.getTotalClasses();
-
-                tmWebcam = new tmImage.Webcam(320, 240, true);
-                await tmWebcam.setup();
-                await tmWebcam.play();
-
-                webcamContainer.innerHTML = '';
-                webcamContainer.appendChild(tmWebcam.canvas);
-
-                labelContainer.innerHTML = '';
-                for (let i = 0; i < tmMaxPredictions; i += 1) {
-                    labelContainer.appendChild(document.createElement('div'));
-                }
-
-                const loop = async () => {
-                    if (!tmWebcam) {
-                        return;
-                    }
-                    tmWebcam.update();
-                    await predict();
-                    tmLoopHandle = window.requestAnimationFrame(loop);
-                };
-
-                loop();
-                button.textContent = 'Model Running';
-                statusEl.textContent = 'Teachable Machine ready. Capture a frame to attach classification.';
-            } catch (error) {
-                statusEl.textContent = `Unable to start Teachable Machine model: ${error.message}`;
-                button.disabled = false;
-                button.textContent = 'Start Model';
-                tmModel = null;
-                if (tmWebcam) {
-                    tmWebcam.stop();
-                    tmWebcam = null;
-                }
-            }
-        }
-
-        async function predict() {
-            if (!tmModel || !tmWebcam) {
-                return;
-            }
-
-            const predictions = await tmModel.predict(tmWebcam.canvas);
-            if (!predictions || !predictions.length) {
-                tmPredictionSummary = null;
-                return;
-            }
-
-            const structured = predictions.map((entry) => ({
-                label: entry.className,
-                probability: Number(entry.probability.toFixed(4)),
-            }));
-
-            structured.forEach((entry, idx) => {
-                if (labelContainer.childNodes[idx]) {
-                    labelContainer.childNodes[idx].textContent = `${entry.label}: ${(entry.probability * 100).toFixed(1)}%`;
-                }
-            });
-
-            const top = structured.reduce((best, candidate) => (
-                candidate.probability > best.probability ? candidate : best
-            ), structured[0]);
-
-            tmPredictionSummary = {
-                label: top.label,
-                probability: top.probability,
-                predictions: structured,
-                timestamp: new Date().toISOString(),
-            };
-        }
-
-        function shutdownTeachableMachine() {
-            if (tmLoopHandle) {
-                window.cancelAnimationFrame(tmLoopHandle);
-                tmLoopHandle = null;
-            }
-            if (tmWebcam) {
-                tmWebcam.stop();
-                tmWebcam = null;
-            }
-        }
-
         document.getElementById('register-form').addEventListener('submit', async (event) => {
             event.preventDefault();
             statusEl.textContent = '';
 
-            if (!hasSnapshot) {
-                captureSnapshot();
+            if (capturedSamples.length < REQUIRED_SAMPLES) {
+                await captureSnapshot();
             }
 
-            const blob = await canvasBlob(canvas);
-            if (!blob) {
-                statusEl.textContent = 'Unable to capture image. Try again.';
+            if (capturedSamples.length < REQUIRED_SAMPLES) {
+                statusEl.textContent = `Need ${REQUIRED_SAMPLES} samples, but only have ${capturedSamples.length}. Capture more frames.`;
                 return;
             }
 
@@ -321,10 +225,10 @@
             formData.append('state', document.getElementById('state').value.trim());
             formData.append('postal_code', document.getElementById('postal_code').value.trim());
             formData.append('country', document.getElementById('country').value.trim());
-            if (tmPredictionSummary) {
-                formData.append('classification', JSON.stringify(tmPredictionSummary));
-            }
-            formData.append('file', blob, 'register.jpg');
+            capturedSamples.slice(0, REQUIRED_SAMPLES).forEach((sample, index) => {
+                formData.append('face_samples', sample, `face-sample-${index + 1}.jpg`);
+            });
+            formData.append('file', capturedSamples[0], 'register-primary.jpg');
 
             try {
                 const response = await fetch(`${API_BASE}/api/register`, {
@@ -335,10 +239,9 @@
                 if (!response.ok) {
                     throw new Error(result?.message || 'Registration failed.');
                 }
-                const classificationNotice = tmPredictionSummary
-                    ? ` Classification tag: ${tmPredictionSummary.label} (${(tmPredictionSummary.probability * 100).toFixed(1)}%).`
-                    : '';
-                statusEl.textContent = `Registration broadcast successful across verifier network.${classificationNotice}`;
+                capturedSamples.length = 0;
+                hasSnapshot = false;
+                statusEl.textContent = 'Registration broadcast successful across verifier network.';
             } catch (error) {
                 statusEl.textContent = `Registration error: ${error.message}`;
             } finally {
@@ -347,9 +250,19 @@
             }
         });
 
-        captureBtn.addEventListener('click', captureSnapshot);
+        captureBtn.addEventListener('click', () => captureSamplesBatch(REQUIRED_SAMPLES));
+        resetBtn.addEventListener('click', () => {
+            capturedSamples.length = 0;
+            hasSnapshot = false;
+            statusEl.textContent = 'Sample buffer cleared. Capture fresh frames when ready.';
+        });
         setupCamera();
-        window.addEventListener('beforeunload', shutdownTeachableMachine);
+        window.addEventListener('beforeunload', () => {
+            const stream = video.srcObject;
+            if (stream && typeof stream.getTracks === 'function') {
+                stream.getTracks().forEach((track) => track.stop());
+            }
+        });
     </script>
 </body>
 </html>

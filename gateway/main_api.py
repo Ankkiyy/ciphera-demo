@@ -1,12 +1,21 @@
+import asyncio
 import json
 import os
+import sys
 import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import jwt
 import requests
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from face_recognition import encode_known_faces, slugify_name, store_face_samples
 
 SECRET = os.getenv("SECRET", "CIPHERA_KEY")
 
@@ -17,6 +26,12 @@ NODES: List[str] = [
 ]
 if not NODES:
     raise ValueError("No verifier nodes configured. Set NODES environment variable.")
+
+FACE_ENCODER_MODE = os.getenv("FACE_ENCODER_MODE", "cpu").lower()
+if FACE_ENCODER_MODE not in {"cpu", "gpu"}:
+    FACE_ENCODER_MODE = "cpu"
+
+FACE_SAMPLES_REQUIRED = int(os.getenv("FACE_SAMPLES_REQUIRED", "10"))
 
 
 app = FastAPI(title="CiphERA Gateway", version="1.0.0")
@@ -35,7 +50,8 @@ async def register_user(
     first_name: str = Form(...),
     last_name: str = Form(...),
     email: str = Form(...),
-    file: UploadFile = File(...),
+    face_samples: Optional[List[UploadFile]] = File(None),
+    file: Optional[UploadFile] = File(None),
     middle_name: Optional[str] = Form(None),
     phone: str = Form(...),
     address_line1: str = Form(...),
@@ -47,9 +63,33 @@ async def register_user(
     name: Optional[str] = Form(None),
     classification: Optional[str] = Form(None),
 ):
-    image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail={"message": "No image content received."})
+    sample_payloads: List[bytes] = []
+
+    if face_samples:
+        for sample in face_samples:
+            payload = await sample.read()
+            if payload:
+                sample_payloads.append(payload)
+
+    if not sample_payloads and file is not None:
+        fallback = await file.read()
+        if fallback:
+            sample_payloads.append(fallback)
+
+    if not sample_payloads:
+        raise HTTPException(status_code=400, detail={"message": "At least one face sample is required."})
+
+    if FACE_SAMPLES_REQUIRED and len(sample_payloads) < FACE_SAMPLES_REQUIRED:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"Insufficient face samples provided. Expected at least {FACE_SAMPLES_REQUIRED}.",
+                "received": len(sample_payloads),
+            },
+        )
+
+    if FACE_SAMPLES_REQUIRED:
+        sample_payloads = sample_payloads[:FACE_SAMPLES_REQUIRED]
 
     first_name = first_name.strip()
     middle_name = (middle_name or "").strip() or None
@@ -72,6 +112,37 @@ async def register_user(
     except json.JSONDecodeError:
         classification_payload = classification
 
+    person_slug = slugify_name(first_name, last_name, email)
+
+    try:
+        saved_paths = store_face_samples(person_slug, sample_payloads, replace=True)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to persist face samples to the training dataset.",
+                "reason": str(exc),
+            },
+        ) from exc
+
+    def _refresh_encodings() -> None:
+        encode_known_faces(mode=FACE_ENCODER_MODE, verbose=False)
+
+    try:
+        try:
+            await asyncio.to_thread(_refresh_encodings)
+        except AttributeError:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _refresh_encodings)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Failed to refresh face recognition encodings after enrollment.",
+                "reason": str(exc),
+            },
+        ) from exc
+
     profile = {
         "first_name": first_name,
         "middle_name": middle_name,
@@ -84,6 +155,8 @@ async def register_user(
         "postal_code": postal_code,
         "country": country,
         "classification": classification_payload,
+        "face_slug": person_slug,
+        "sample_count": len(sample_payloads),
     }
 
     results = []
@@ -105,13 +178,8 @@ async def register_user(
                     "postal_code": postal_code,
                     "country": country,
                     "classification": classification or "",
-                },
-                files={
-                    "file": (
-                        file.filename or "face.jpg",
-                        image_bytes,
-                        file.content_type or "image/jpeg",
-                    )
+                    "face_slug": person_slug,
+                    "sample_count": str(len(sample_payloads)),
                 },
                 timeout=15,
             )
@@ -132,10 +200,18 @@ async def register_user(
             },
         )
 
+    training_summary = {
+        "face_slug": person_slug,
+        "samples_saved": len(saved_paths),
+        "encoder_mode": FACE_ENCODER_MODE,
+        "expected_samples": FACE_SAMPLES_REQUIRED,
+    }
+
     return {
         "message": "Registration broadcast complete.",
         "results": results,
         "profile": {"name": full_name, "email": email, **profile},
+        "training": training_summary,
     }
 
 
@@ -254,6 +330,8 @@ async def signin_classifier(label: str = Body(..., embed=True)):
     }
 
 if __name__ == "__main__":
-    import uvicorn
-
+    try:
+        import uvicorn  # type: ignore[import]
+    except ImportError as exc:  # pragma: no cover - optional server dependency
+        raise RuntimeError("Uvicorn must be installed to run the gateway API.") from exc
     uvicorn.run(app, host="0.0.0.0", port=8000)

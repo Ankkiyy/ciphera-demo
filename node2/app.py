@@ -1,6 +1,6 @@
-import hashlib
 import json
 from pathlib import Path
+import sys
 from threading import Lock
 from typing import Dict, Optional
 
@@ -10,6 +10,12 @@ app = FastAPI(title="CiphERA Node 2", version="1.0.0")
 
 USERS_DB_PATH = Path(__file__).resolve().parent / "users.json"
 LOCK = Lock()
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from face_recognition import clear_encodings_cache, match_face
 
 def ensure_db() -> None:
     if not USERS_DB_PATH.exists():
@@ -37,7 +43,7 @@ async def register_user(
     first_name: str = Form(...),
     last_name: str = Form(...),
     email: str = Form(...),
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
     middle_name: Optional[str] = Form(None),
     phone: str = Form(...),
     address_line1: str = Form(...),
@@ -48,12 +54,11 @@ async def register_user(
     country: str = Form(...),
     name: Optional[str] = Form(None),
     classification: Optional[str] = Form(None),
+    face_slug: Optional[str] = Form(None),
+    sample_count: Optional[str] = Form(None),
 ):
-    image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="No image provided.")
-
-    signature = hashlib.sha256(image_bytes).hexdigest()
+    if file is not None:
+        await file.read()
 
     # Normalize profile fields before persistence for consistency.
     first_name = first_name.strip()
@@ -93,9 +98,14 @@ async def register_user(
 
     with LOCK:
         users = load_users()
+        parsed_sample_count = None
+        if sample_count and str(sample_count).isdigit():
+            parsed_sample_count = int(sample_count)
+
         users[email] = {
             "name": full_name,
-            "signature": signature,
+            "face_slug": face_slug,
+            "sample_count": parsed_sample_count,
             "profile": profile,
         }
         save_users(users)
@@ -109,26 +119,35 @@ async def verify_face(file: UploadFile = File(...)):
     if not image_bytes:
         raise HTTPException(status_code=400, detail="No image provided.")
 
-    probe_signature = hashlib.sha256(image_bytes).hexdigest()
-
     users = load_users()
     if not users:
         return {"verified": False, "reason": "no_enrollments"}
 
+    try:
+        clear_encodings_cache()
+        match = match_face(image_bytes)
+    except FileNotFoundError:
+        return {"verified": False, "reason": "encodings_missing"}
+
+    if not match:
+        return {"verified": False, "reason": "no_match"}
+
+    recognized_slug = match.get("name")
     for email, record in users.items():
-        stored_signature = record.get("signature")
-        if not stored_signature and "embedding" in record:
-            stored = record.get("embedding")
-            stored_signature = stored if isinstance(stored, str) else None
-        if stored_signature and stored_signature == probe_signature:
+        stored_slug = record.get("face_slug") or record.get("profile", {}).get("face_slug")
+        if stored_slug and stored_slug == recognized_slug:
             return {
                 "verified": True,
                 "user": email,
-                "distance": 0.0,
+                "distance": match.get("distance"),
                 "profile": record.get("profile"),
             }
 
-    return {"verified": False, "reason": "no_match"}
+    return {
+        "verified": False,
+        "reason": "unregistered_match",
+        "candidate": recognized_slug,
+    }
 
 
 @app.post("/classifier-lookup")
@@ -167,6 +186,8 @@ async def classifier_lookup(payload: Dict[str, Optional[str]] = Body(...)):
 
 
 if __name__ == "__main__":
-    import uvicorn
-
+    try:
+        import uvicorn  # type: ignore[import]
+    except ImportError as exc:  # pragma: no cover - optional server dependency
+        raise RuntimeError("Uvicorn must be installed to run node services.") from exc
     uvicorn.run(app, host="0.0.0.0", port=8002)
