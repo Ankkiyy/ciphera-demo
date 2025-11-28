@@ -30,7 +30,7 @@
         }
         .camera-section { display: grid; gap: 1rem; }
         video, canvas { width: 100%; max-height: 360px; border-radius: 0.75rem; background: #0f172a; }
-        .actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+        .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 1rem; }
         button {
             cursor: pointer;
             border: none;
@@ -67,6 +67,30 @@
             margin: 0;
             padding-left: 1.25rem;
         }
+        #identity {
+            display: none;
+            background: rgba(15, 23, 42, 0.7);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-size: 0.9rem;
+            gap: 0.5rem;
+        }
+        #identity ul {
+            margin: 0.5rem 0 0;
+            padding-left: 1.25rem;
+        }
+        #identity pre {
+            margin: 0.35rem 0 0;
+            background: rgba(2, 6, 23, 0.7);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            color: #e2e8f0;
+        }
+        #continue-wrapper {
+            display: none;
+            justify-content: flex-end;
+        }
     </style>
 </head>
 <body>
@@ -76,13 +100,16 @@
             <video id="video" autoplay playsinline></video>
             <canvas id="snapshot" width="640" height="480" style="display:none;"></canvas>
             <div class="actions">
-                <button class="secondary" type="button" id="capture-btn">Capture Frame</button>
-                <button class="primary" type="button" id="signin-btn">Request Consensus</button>
+                <button class="primary" type="button" id="signin-btn">Sign In</button>
             </div>
             <div id="status"></div>
             <div id="votes" style="display:none;">
                 <strong>Verifier consensus log</strong>
                 <ul id="votes-list"></ul>
+            </div>
+            <div id="identity"></div>
+            <div class="actions" id="continue-wrapper">
+                <button class="primary" type="button" id="continue-btn">Continue to Callback</button>
             </div>
         </section>
     </main>
@@ -94,9 +121,11 @@
         const statusEl = document.getElementById('status');
         const votesContainer = document.getElementById('votes');
         const votesList = document.getElementById('votes-list');
-        const captureBtn = document.getElementById('capture-btn');
         const signinBtn = document.getElementById('signin-btn');
-        let hasSnapshot = false;
+        const identityContainer = document.getElementById('identity');
+        const continueWrapper = document.getElementById('continue-wrapper');
+        const continueBtn = document.getElementById('continue-btn');
+        let pendingToken = null;
 
         async function setupCamera() {
             try {
@@ -104,7 +133,6 @@
                 video.srcObject = stream;
             } catch (error) {
                 statusEl.textContent = 'Camera access denied. Please enable video permissions to continue.';
-                captureBtn.disabled = true;
                 signinBtn.disabled = true;
             }
         }
@@ -112,8 +140,6 @@
         function captureSnapshot() {
             const context = canvas.getContext('2d');
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            hasSnapshot = true;
-            statusEl.textContent = 'Snapshot captured. Requesting verifier consensus...';
         }
 
         function canvasBlob(canvasElement) {
@@ -136,11 +162,56 @@
             votesContainer.style.display = votes.length ? 'block' : 'none';
         }
 
+        function renderIdentity(result) {
+            if (!result || !result.authenticated) {
+                identityContainer.style.display = 'none';
+                identityContainer.innerHTML = '';
+                return;
+            }
+
+            const userEmail = result.user || 'Unknown user';
+            const metrics = result.metrics || {};
+            const profile = result.profile || {};
+            const sections = [`<div><strong>Email</strong>: ${userEmail}</div>`];
+
+            if (metrics && typeof metrics === 'object') {
+                const metricItems = [];
+                if (typeof metrics.confidence === 'number') {
+                    metricItems.push(`<li>Confidence: ${(metrics.confidence * 100).toFixed(2)}%</li>`);
+                }
+                if (typeof metrics.best_distance === 'number') {
+                    metricItems.push(`<li>Best distance: ${metrics.best_distance.toFixed(4)}</li>`);
+                }
+                if (typeof metrics.average_distance === 'number') {
+                    metricItems.push(`<li>Average distance: ${metrics.average_distance.toFixed(4)}</li>`);
+                }
+                if (metricItems.length) {
+                    sections.push(`<div><strong>Match metrics</strong><ul>${metricItems.join('')}</ul></div>`);
+                }
+            }
+
+            if (profile && profile.classification) {
+                sections.push(`<div><strong>Classification</strong><pre>${JSON.stringify(profile.classification, null, 2)}</pre></div>`);
+            }
+
+            if (Array.isArray(profile?.entries) && profile.entries.length) {
+                const entryItems = profile.entries.map((entry) => {
+                    const nodeName = entry?.node || 'unknown-node';
+                    const details = entry?.profile ? JSON.stringify(entry.profile, null, 2) : 'No profile details provided.';
+                    return `<li><strong>${nodeName}</strong><pre>${details}</pre></li>`;
+                });
+                sections.push(`<div><strong>Verifier profiles</strong><ul>${entryItems.join('')}</ul></div>`);
+            }
+
+            identityContainer.innerHTML = sections.join('');
+            identityContainer.style.display = 'block';
+        }
+
         async function requestSignin() {
             statusEl.textContent = '';
-            if (!hasSnapshot) {
-                captureSnapshot();
-            }
+            pendingToken = null;
+            continueWrapper.style.display = 'none';
+            captureSnapshot();
 
             const blob = await canvasBlob(canvas);
             if (!blob) {
@@ -148,7 +219,7 @@
                 return;
             }
 
-            captureBtn.disabled = true;
+            renderIdentity(null);
             signinBtn.disabled = true;
             statusEl.textContent = 'Contacting verifier network...';
 
@@ -168,26 +239,31 @@
                 }
 
                 if (result?.authenticated && result?.token) {
-                    statusEl.textContent = 'Consensus achieved. Redirecting with identity assertion...';
-                    const encoded = encodeURIComponent(result.token);
-                    window.location.href = `callback.html?token=${encoded}`;
+                    pendingToken = result.token;
+                    statusEl.textContent = 'Consensus achieved. Review the recognized identity details below, then continue when ready.';
+                    renderIdentity(result);
+                    continueWrapper.style.display = 'flex';
                 } else {
                     statusEl.textContent = 'Consensus not reached. Please retry.';
-                    hasSnapshot = false;
+                    renderIdentity(null);
                 }
             } catch (error) {
                 statusEl.textContent = `Sign-in error: ${error.message}`;
+                renderIdentity(null);
             } finally {
-                captureBtn.disabled = false;
                 signinBtn.disabled = false;
             }
         }
 
-        captureBtn.addEventListener('click', () => {
-            captureSnapshot();
-            statusEl.textContent = 'Snapshot captured. Press Request Consensus to continue.';
-        });
         signinBtn.addEventListener('click', requestSignin);
+        continueBtn.addEventListener('click', () => {
+            if (!pendingToken) {
+                statusEl.textContent = 'No identity assertion available. Request consensus first.';
+                return;
+            }
+            const encoded = encodeURIComponent(pendingToken);
+            window.location.href = `callback.html?token=${encoded}`;
+        });
         setupCamera();
         window.addEventListener('beforeunload', () => {
             const stream = video.srcObject;

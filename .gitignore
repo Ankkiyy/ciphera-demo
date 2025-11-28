@@ -1,5 +1,5 @@
 venv/
-face_recognition/training
-face_recognition/validation
-__pycache__/
+face_model/training
+face_model/validation
+**/__pycache__/
 **/*.pyc

@@ -1,8 +1,3 @@
-# detector.py
-
-from collections import Counter
-# detector.py
-
 from collections import Counter
 from functools import lru_cache
 from pathlib import Path
@@ -23,16 +18,17 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     dlib = None
 
-DEFAULT_ENCODINGS_PATH = Path("face_recognition/output/encodings.pkl")
-TRAINING_DIR = Path("face_recognition/training")
-VALIDATION_DIR = Path("face_recognition/validation")
-OUTPUT_DIR = Path("face_recognition/output")
+MODULE_ROOT = Path(__file__).resolve().parent
+DEFAULT_ENCODINGS_PATH = MODULE_ROOT / "output" / "encodings.pkl"
+TRAINING_DIR = MODULE_ROOT / "training"
+VALIDATION_DIR = MODULE_ROOT / "validation"
+OUTPUT_DIR = MODULE_ROOT / "output"
 BOUNDING_BOX_COLOR = "blue"
 TEXT_COLOR = "white"
 
-TRAINING_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
-VALIDATION_DIR.mkdir(exist_ok=True)
+TRAINING_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+VALIDATION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _iter_image_files(directory: Path) -> Iterable[Path]:

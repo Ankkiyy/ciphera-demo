@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -8,14 +9,14 @@ from typing import Dict, List, Optional
 
 import jwt
 import requests
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from face_recognition import encode_known_faces, slugify_name, store_face_samples
+from face_model import encode_known_faces, slugify_name, store_face_samples
 
 SECRET = os.getenv("SECRET", "CIPHERA_KEY")
 
@@ -46,38 +47,121 @@ app.add_middleware(
 
 
 @app.post("/api/register")
-async def register_user(
-    first_name: str = Form(...),
-    last_name: str = Form(...),
-    email: str = Form(...),
-    face_samples: Optional[List[UploadFile]] = File(None),
-    file: Optional[UploadFile] = File(None),
-    middle_name: Optional[str] = Form(None),
-    phone: str = Form(...),
-    address_line1: str = Form(...),
-    address_line2: Optional[str] = Form(None),
-    city: str = Form(...),
-    state: Optional[str] = Form(None),
-    postal_code: str = Form(...),
-    country: str = Form(...),
-    name: Optional[str] = Form(None),
-    classification: Optional[str] = Form(None),
-):
+async def register_user(request: Request):
+    form_data = await request.form()
+
+    def _required(field: str) -> str:
+        value = form_data.get(field)
+        if isinstance(value, str):
+            value = value.strip()
+        if not value:
+            missing_fields.append(field)
+            return ""
+        return value
+
+    def _optional(field: str) -> Optional[str]:
+        value = form_data.get(field)
+        if isinstance(value, str):
+            value = value.strip()
+        return value or None
+
+    missing_fields: List[str] = []
+
+    first_name = _required("first_name")
+    last_name = _required("last_name")
+    email = _required("email")
+    phone = _required("phone")
+    address_line1 = _required("address_line1")
+    city = _required("city")
+    postal_code = _required("postal_code")
+    country = _required("country")
+
+    middle_name = _optional("middle_name")
+    address_line2 = _optional("address_line2")
+    state = _optional("state")
+    name = _optional("name")
+    classification_raw = _optional("classification")
+
+    if missing_fields:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Missing required profile attributes.",
+                "missing": missing_fields,
+            },
+        )
+
     sample_payloads: List[bytes] = []
 
-    if face_samples:
-        for sample in face_samples:
-            payload = await sample.read()
+    raw_candidates: List[object] = []
+    if hasattr(form_data, "getlist"):
+        for field_name in ("face_samples", "face_samples[]"):
+            try:
+                items = form_data.getlist(field_name)
+            except (AttributeError, TypeError):
+                items = None
+            if items:
+                raw_candidates.extend(items)
+
+    if not raw_candidates:
+        fallback_entry = form_data.get("face_samples")
+        if fallback_entry is not None:
+            raw_candidates.append(fallback_entry)
+
+    if hasattr(form_data, "multi_items"):
+        try:
+            for key, value in form_data.multi_items():
+                if key == "face_samples" or key.startswith("face_samples["):
+                    raw_candidates.append(value)
+        except (AttributeError, TypeError):
+            pass
+
+    seen_uploads: set[int] = set()
+    for entry in raw_candidates:
+        if isinstance(entry, UploadFile) or (hasattr(entry, "read") and hasattr(entry, "filename")):
+            entry_id = id(entry)
+            if entry_id in seen_uploads:
+                continue
+            seen_uploads.add(entry_id)
+            try:
+                await entry.seek(0)
+            except (AttributeError, TypeError):
+                try:
+                    entry.file.seek(0)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            payload = await entry.read()
             if payload:
                 sample_payloads.append(payload)
+            await entry.close()
+        elif isinstance(entry, (bytes, bytearray)):
+            if entry:
+                sample_payloads.append(bytes(entry))
+        elif isinstance(entry, str) and entry:
+            if entry.startswith("data:") and "," in entry:
+                _, encoded = entry.split(",", 1)
+                try:
+                    decoded = base64.b64decode(encoded)
+                except (base64.binascii.Error, ValueError):
+                    decoded = b""
+                if decoded:
+                    sample_payloads.append(decoded)
 
-    if not sample_payloads and file is not None:
-        fallback = await file.read()
+    primary_file = form_data.get("file")
+    if not sample_payloads and isinstance(primary_file, UploadFile):
+        fallback = await primary_file.read()
         if fallback:
             sample_payloads.append(fallback)
+        await primary_file.close()
 
     if not sample_payloads:
-        raise HTTPException(status_code=400, detail={"message": "At least one face sample is required."})
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "At least one face sample is required.",
+                "received_face_fields": len(raw_candidates),
+            },
+        )
 
     if FACE_SAMPLES_REQUIRED and len(sample_payloads) < FACE_SAMPLES_REQUIRED:
         raise HTTPException(
@@ -108,9 +192,9 @@ async def register_user(
     full_name = (name or " ".join(filter(None, [first_name, middle_name, last_name]))).strip()
 
     try:
-        classification_payload = json.loads(classification) if classification else None
+        classification_payload = json.loads(classification_raw) if classification_raw else None
     except json.JSONDecodeError:
-        classification_payload = classification
+        classification_payload = classification_raw
 
     person_slug = slugify_name(first_name, last_name, email)
 
@@ -177,7 +261,7 @@ async def register_user(
                     "state": state or "",
                     "postal_code": postal_code,
                     "country": country,
-                    "classification": classification or "",
+                    "classification": classification_raw or "",
                     "face_slug": person_slug,
                     "sample_count": str(len(sample_payloads)),
                 },
@@ -248,30 +332,75 @@ async def signin_user(file: UploadFile = File(...)):
     if len(positive_votes) >= required_majority:
         primary_vote = positive_votes[0]
         user_email = primary_vote.get("user")
-        profiles = [vote.get("profile") for vote in positive_votes if vote.get("profile")]
-        aggregated_profile = None
-        if profiles:
+
+        sources: List[Optional[str]] = []
+        entries: List[Dict[str, object]] = []
+        classification_value: Optional[object] = None
+
+        for vote in positive_votes:
+            node_name = vote.get("node")
+            if node_name:
+                sources.append(node_name)
+            profile_entry = vote.get("profile")
+            if profile_entry is not None:
+                entry_payload: Dict[str, object] = {"node": node_name, "profile": profile_entry}
+                entries.append(entry_payload)
+                if classification_value is None and isinstance(profile_entry, dict):
+                    classification_candidate = profile_entry.get("classification")
+                    if classification_candidate not in (None, ""):
+                        classification_value = classification_candidate
+
+        if sources:
+            sources = list(dict.fromkeys(sources))
+
+        aggregated_profile: Optional[Dict[str, object]] = None
+        if entries:
             aggregated_profile = {
-                "sources": [vote.get("node") for vote in positive_votes],
-                "entries": profiles,
+                "email": user_email,
+                "sources": sources,
+                "entries": entries,
             }
-            if profiles[0].get("classification"):
-                aggregated_profile["classification"] = profiles[0]["classification"]
+            if classification_value is not None:
+                aggregated_profile["classification"] = classification_value
+
+        distance_values = [
+            float(vote.get("distance"))
+            for vote in positive_votes
+            if isinstance(vote.get("distance"), (int, float))
+        ]
+
+        metrics: Optional[Dict[str, object]] = None
+        if distance_values:
+            best_distance = min(distance_values)
+            average_distance = sum(distance_values) / len(distance_values)
+            confidence = max(0.0, min(1.0, 1.0 - best_distance))
+            metrics = {
+                "best_distance": round(best_distance, 4),
+                "average_distance": round(average_distance, 4),
+                "confidence": round(confidence, 4),
+                "positive_votes": len(positive_votes),
+                "required_majority": required_majority,
+            }
+
         issued_at = int(time.time())
         payload = {
             "user": user_email,
             "nodes": [vote.get("node") for vote in positive_votes],
             "profile": aggregated_profile,
+            "metrics": metrics,
             "iat": issued_at,
             "exp": issued_at + 3600,
         }
         token = jwt.encode(payload, SECRET, algorithm="HS256")
-        return {
+        response_payload = {
             "authenticated": True,
+            "user": user_email,
             "token": token,
             "votes": votes,
             "profile": aggregated_profile,
+            "metrics": metrics,
         }
+        return response_payload
 
     return {"authenticated": False, "votes": votes}
 
