@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CiphERA Identity Control Panel</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #020617;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 2rem 1rem 4rem;
+        }
+        main {
+            width: 100%;
+            max-width: 1080px;
+            background: rgba(15, 23, 42, 0.92);
+            border-radius: 1rem;
+            box-shadow: 0 30px 80px rgba(8, 47, 73, 0.72);
+            padding: 2.5rem;
+            display: grid;
+            gap: 2rem;
+        }
+        h1, h2 {
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+        }
+        h2 {
+            font-size: 1.25rem;
+            color: #38bdf8;
+        }
+        section {
+            background: rgba(2, 6, 23, 0.7);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            display: grid;
+            gap: 1.5rem;
+        }
+        .grid-two {
+            display: grid;
+            gap: 1.25rem;
+        }
+        @media (min-width: 768px) {
+            .grid-two {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+        label {
+            display: grid;
+            gap: 0.5rem;
+            font-size: 0.95rem;
+        }
+        input, select, textarea {
+            border: none;
+            border-radius: 0.6rem;
+            padding: 0.75rem 0.9rem;
+            background: rgba(148, 163, 184, 0.18);
+            color: #f8fafc;
+            font-size: 0.95rem;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 110px;
+        }
+        .radio-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem 1.25rem;
+        }
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 0.8rem;
+            padding: 0.85rem 1.6rem;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        button.primary {
+            background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+            color: #020617;
+        }
+        button.secondary {
+            background: rgba(148, 163, 184, 0.25);
+            color: #f8fafc;
+        }
+        button:active {
+            transform: translateY(1px);
+        }
+        #status {
+            min-height: 1.5rem;
+            font-size: 0.9rem;
+            color: #38bdf8;
+        }
+        .token-preview {
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 0.6rem;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+        .inline-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+        .helper {
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        a {
+            color: #38bdf8;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js" integrity="sha384-F7rsMgwjID/qBzfHrrraZGs9oIf1GI4Z7FTZwdOPHc67gR5impCBM+tg7jbH+aZy" crossorigin="anonymous"></script>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>CiphERA Identity Control Panel</h1>
+            <p class="helper">Govern what the demo relying party receives after biometric sign-in.</p>
+            <div id="status"></div>
+        </header>
+
+        <section id="identity-section">
+            <h2>Authenticated Identity</h2>
+            <div id="identity-summary" class="helper">Awaiting token...</div>
+            <div>
+                <strong>Latest Assertion</strong>
+                <pre id="token-preview" class="token-preview"></pre>
+            </div>
+            <div>
+                <strong>Decoded Claims</strong>
+                <pre id="claims-preview" class="token-preview"></pre>
+            </div>
+        </section>
+
+        <section>
+            <h2>Profile Controls</h2>
+            <div class="grid-two">
+                <label>
+                    <span>Display name</span>
+                    <input id="actual-name" type="text" placeholder="Jane Doe">
+                    <select id="name-mode">
+                        <option value="actual">Share actual name</option>
+                        <option value="alias">Share randomized alias</option>
+                    </select>
+                    <input id="alias-name" type="text" placeholder="Alias generated automatically">
+                </label>
+                <label>
+                    <span>Email address</span>
+                    <input id="actual-email" type="email" placeholder="jane@example.com">
+                    <select id="email-mode">
+                        <option value="actual">Share actual email</option>
+                        <option value="alias">Share relay email alias</option>
+                    </select>
+                    <input id="alias-email" type="email" placeholder="relay@ciphera.id">
+                </label>
+                <label>
+                    <span>Phone number</span>
+                    <input id="actual-phone" type="tel" placeholder="+44 20 7946 0123">
+                    <select id="phone-mode">
+                        <option value="actual">Share actual phone</option>
+                        <option value="alias">Share relay phone alias</option>
+                        <option value="none">Do not share phone</option>
+                    </select>
+                    <input id="alias-phone" type="tel" placeholder="Relay phone (optional)">
+                </label>
+                <label>
+                    <span>Shipping address</span>
+                    <textarea id="actual-address" placeholder="221B Baker Street, London NW1"></textarea>
+                    <select id="address-mode">
+                        <option value="actual">Share actual address</option>
+                        <option value="alias">Share drop-point alias</option>
+                        <option value="none">Do not share address</option>
+                    </select>
+                    <textarea id="alias-address" placeholder="Locker #447, Holborn Hub"></textarea>
+                </label>
+            </div>
+        </section>
+
+        <section>
+            <h2>Contact Policy</h2>
+            <div class="radio-group" role="radiogroup" aria-labelledby="contact-policy-label">
+                <label class="radio-option">
+                    <input type="radio" name="contact-mode" value="relay" checked>
+                    <span>Use relay email and optional relay phone</span>
+                </label>
+                <label class="radio-option">
+                    <input type="radio" name="contact-mode" value="token">
+                    <span>Issue contact token only</span>
+                </label>
+            </div>
+            <div class="grid-two">
+                <label>
+                    <span>Relay email</span>
+                    <input id="relay-email" type="email" placeholder="relay@ciphera.id">
+                </label>
+                <label>
+                    <span>Relay phone</span>
+                    <input id="relay-phone" type="tel" placeholder="+44 20 0000 0000">
+                </label>
+                <label>
+                    <span>Contact token</span>
+                    <input id="contact-token" type="text" placeholder="autogenerated-token">
+                </label>
+            </div>
+            <p class="helper">Relay details are delivered to merchants; contact tokens require merchants to request contact via CiphERA.</p>
+        </section>
+
+        <section>
+            <h2>Actions</h2>
+            <div class="inline-actions">
+                <button class="secondary" id="reset-btn" type="button">Reset to defaults</button>
+                <button class="primary" id="save-btn" type="button">Save sharing policy</button>
+                <button class="primary" id="demo-btn" type="button">Open demo relying party</button>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const tokenPreviewEl = document.getElementById('token-preview');
+        const claimsPreviewEl = document.getElementById('claims-preview');
+        const identitySummaryEl = document.getElementById('identity-summary');
+        const saveBtn = document.getElementById('save-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const demoBtn = document.getElementById('demo-btn');
+
+        const identityInputs = {
+            name: {
+                actual: document.getElementById('actual-name'),
+                alias: document.getElementById('alias-name'),
+                mode: document.getElementById('name-mode'),
+            },
+            email: {
+                actual: document.getElementById('actual-email'),
+                alias: document.getElementById('alias-email'),
+                mode: document.getElementById('email-mode'),
+            },
+            phone: {
+                actual: document.getElementById('actual-phone'),
+                alias: document.getElementById('alias-phone'),
+                mode: document.getElementById('phone-mode'),
+            },
+            address: {
+                actual: document.getElementById('actual-address'),
+                alias: document.getElementById('alias-address'),
+                mode: document.getElementById('address-mode'),
+            },
+        };
+
+        const contactInputs = {
+            relayEmail: document.getElementById('relay-email'),
+            relayPhone: document.getElementById('relay-phone'),
+            contactToken: document.getElementById('contact-token'),
+            radios: Array.from(document.querySelectorAll('input[name="contact-mode"]')),
+        };
+
+        function randomAlias(prefix) {
+            const words = ['Nova', 'Orion', 'Lyra', 'Atlas', 'Vega', 'Cypher', 'Helio', 'Cascade', 'Quartz', 'Prism'];
+            const suffix = Math.floor(Math.random() * 9000 + 1000);
+            return `${prefix || 'Alias'}-${words[Math.floor(Math.random() * words.length)]}-${suffix}`;
+        }
+
+        function randomEmail() {
+            const handles = ['relay', 'post', 'contact', 'connect', 'secure'];
+            const domains = ['ciphera.id', 'ciphera.link', 'ciphera-relay.net'];
+            return `${handles[Math.floor(Math.random() * handles.length)]}+${Math.random().toString(36).slice(2, 8)}@${domains[Math.floor(Math.random() * domains.length)]}`;
+        }
+
+        function randomPhone() {
+            const base = '+44 748';
+            const tail = Math.floor(Math.random() * 900000 + 100000).toString().padStart(6, '0');
+            return `${base} ${tail.slice(0, 3)} ${tail.slice(3)}`;
+        }
+
+        function randomToken() {
+            return `tok_${crypto.randomUUID()}`;
+        }
+
+        function getSelectedContactMode() {
+            return contactInputs.radios.find((radio) => radio.checked)?.value || 'relay';
+        }
+
+        function setSelectedContactMode(mode) {
+            contactInputs.radios.forEach((radio) => {
+                radio.checked = radio.value === mode;
+            });
+        }
+
+        function toggleContactFields() {
+            const mode = getSelectedContactMode();
+            const relayDisabled = mode !== 'relay';
+            contactInputs.relayEmail.disabled = relayDisabled;
+            contactInputs.relayPhone.disabled = relayDisabled;
+            contactInputs.contactToken.disabled = mode !== 'token';
+        }
+
+        contactInputs.radios.forEach((radio) => {
+            radio.addEventListener('change', toggleContactFields);
+        });
+
+        function loadConfig() {
+            const stored = localStorage.getItem('cipheraPanelConfig');
+            if (!stored) {
+                generateDefaults();
+                return;
+            }
+            try {
+                const config = JSON.parse(stored);
+                Object.entries(identityInputs).forEach(([key, refs]) => {
+                    refs.actual.value = config?.identity?.[key]?.actual || '';
+                    refs.alias.value = config?.identity?.[key]?.alias || '';
+                    refs.mode.value = config?.identity?.[key]?.mode || 'actual';
+                });
+                contactInputs.relayEmail.value = config?.contact?.relayEmail || '';
+                contactInputs.relayPhone.value = config?.contact?.relayPhone || '';
+                contactInputs.contactToken.value = config?.contact?.contactToken || randomToken();
+                setSelectedContactMode(config?.contact?.mode || 'relay');
+                toggleContactFields();
+                if (config?.token) {
+                    tokenPreviewEl.textContent = config.token;
+                }
+                if (config?.claims) {
+                    claimsPreviewEl.textContent = JSON.stringify(config.claims, null, 2);
+                    identitySummaryEl.textContent = summaryFromClaims(config.claims);
+                }
+            } catch (error) {
+                statusEl.textContent = 'Stored configuration corrupted. Defaults restored.';
+                console.error('Failed to load panel config', error);
+                generateDefaults();
+            }
+        }
+
+        function generateDefaults() {
+            identityInputs.name.alias.value = randomAlias('User');
+            identityInputs.email.alias.value = randomEmail();
+            identityInputs.phone.alias.value = randomPhone();
+            identityInputs.address.alias.value = 'Locker #447, Holborn Hub, London';
+            contactInputs.relayEmail.value = randomEmail();
+            contactInputs.relayPhone.value = randomPhone();
+            contactInputs.contactToken.value = randomToken();
+            setSelectedContactMode('relay');
+            toggleContactFields();
+        }
+
+        function summaryFromClaims(claims) {
+            if (!claims) {
+                return 'No claims decoded.';
+            }
+            const name = claims.name || claims.preferred_username || 'Unresolved subject';
+            const email = claims.email || 'no-email@ciphera.local';
+            const sub = claims.sub || 'unknown-subject';
+            return `Subject ${sub} authenticated. Default name: ${name}. Default email: ${email}.`;
+        }
+
+        function saveConfig(currentToken, decodedClaims) {
+            const payload = {
+                token: currentToken || tokenPreviewEl.textContent.trim() || null,
+                claims: decodedClaims || null,
+                updatedAt: new Date().toISOString(),
+                identity: {},
+                contact: {
+                    mode: getSelectedContactMode(),
+                    relayEmail: contactInputs.relayEmail.value.trim(),
+                    relayPhone: contactInputs.relayPhone.value.trim(),
+                    contactToken: contactInputs.contactToken.value.trim() || randomToken(),
+                },
+            };
+
+            Object.entries(identityInputs).forEach(([key, refs]) => {
+                payload.identity[key] = {
+                    actual: refs.actual.value.trim(),
+                    alias: refs.alias.value.trim(),
+                    mode: refs.mode.value,
+                };
+                if (refs.mode.value === 'alias' && !payload.identity[key].alias) {
+                    if (key === 'name') payload.identity[key].alias = randomAlias('User');
+                    if (key === 'email') payload.identity[key].alias = randomEmail();
+                    if (key === 'phone') payload.identity[key].alias = randomPhone();
+                    if (key === 'address') payload.identity[key].alias = 'Locker #447, Holborn Hub, London';
+                }
+            });
+
+            if (payload.contact.mode === 'token' && !payload.contact.contactToken) {
+                payload.contact.contactToken = randomToken();
+            }
+            if (payload.contact.mode === 'relay' && !payload.contact.relayEmail) {
+                payload.contact.relayEmail = randomEmail();
+            }
+
+            localStorage.setItem('cipheraPanelConfig', JSON.stringify(payload));
+            statusEl.textContent = 'Sharing policy saved locally.';
+        }
+
+        function ingestTokenFromQuery() {
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+            if (!token) {
+                statusEl.textContent = 'No new assertion supplied. Using most recent configuration.';
+                return;
+            }
+            tokenPreviewEl.textContent = token;
+            localStorage.setItem('cipheraPanelLastToken', token);
+            try {
+                const decoded = window.jwt_decode(token);
+                claimsPreviewEl.textContent = JSON.stringify(decoded, null, 2);
+                identitySummaryEl.textContent = summaryFromClaims(decoded);
+                if (!identityInputs.name.actual.value) identityInputs.name.actual.value = decoded.name || '';
+                if (!identityInputs.email.actual.value) identityInputs.email.actual.value = decoded.email || '';
+                if (!identityInputs.phone.actual.value) identityInputs.phone.actual.value = decoded.phone_number || '';
+                saveConfig(token, decoded);
+                statusEl.textContent = 'Identity assertion captured. Update the policy below and save again if needed.';
+            } catch (error) {
+                claimsPreviewEl.textContent = 'Unable to decode token. Verify shared secret.';
+                identitySummaryEl.textContent = 'Token decode error.';
+                statusEl.textContent = `Token decode error: ${error.message}`;
+            }
+        }
+
+        saveBtn.addEventListener('click', () => {
+            let parsedClaims = null;
+            try {
+                if (tokenPreviewEl.textContent.trim()) {
+                    parsedClaims = window.jwt_decode(tokenPreviewEl.textContent.trim());
+                }
+            } catch (error) {
+                // Keep claims null when decode fails.
+            }
+            saveConfig(tokenPreviewEl.textContent.trim(), parsedClaims);
+        });
+
+        resetBtn.addEventListener('click', () => {
+            localStorage.removeItem('cipheraPanelConfig');
+            generateDefaults();
+            statusEl.textContent = 'Defaults restored. Remember to save to keep changes.';
+        });
+
+        demoBtn.addEventListener('click', () => {
+            if (!tokenPreviewEl.textContent.trim()) {
+                const storedToken = localStorage.getItem('cipheraPanelLastToken');
+                if (storedToken) {
+                    tokenPreviewEl.textContent = storedToken;
+                }
+            }
+            saveBtn.click();
+            window.location.href = 'demo-login.html';
+        });
+
+        loadConfig();
+        ingestTokenFromQuery();
+        toggleContactFields();
+    </script>
+</body>
+</html>

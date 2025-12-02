@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Ecommerce Store</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #020817;
+            color: #f1f5f9;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 3rem 1rem 4rem;
+        }
+        main {
+            width: 100%;
+            max-width: 960px;
+            background: rgba(15, 23, 42, 0.92);
+            border-radius: 1rem;
+            box-shadow: 0 25px 70px rgba(8, 47, 73, 0.7);
+            padding: 2.5rem;
+            display: grid;
+            gap: 2rem;
+        }
+        h1, h2 {
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+        }
+        section {
+            background: rgba(2, 6, 23, 0.65);
+            border-radius: 0.75rem;
+            padding: 1.75rem;
+            display: grid;
+            gap: 1.25rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 0.7rem 0.8rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+            font-size: 0.95rem;
+        }
+        th {
+            width: 28%;
+            color: #38bdf8;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.3rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            margin-left: 0.5rem;
+        }
+        .helper {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 0.8rem;
+            padding: 0.85rem 1.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        button.primary {
+            background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+            color: #020617;
+        }
+        button.secondary {
+            background: rgba(148, 163, 184, 0.25);
+            color: #f8fafc;
+        }
+        a {
+            color: #38bdf8;
+        }
+        .hero {
+            display: grid;
+            gap: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>Welcome to CipherCart Demo</h1>
+            <p class="helper" id="status"></p>
+        </header>
+
+        <section class="hero">
+            <h2>Customer Profile</h2>
+            <table>
+                <tbody id="profile-table"></tbody>
+            </table>
+            <p class="helper" id="profile-note"></p>
+        </section>
+
+        <section>
+            <h2>Contact Channel</h2>
+            <table>
+                <tbody id="contact-table"></tbody>
+            </table>
+            <p class="helper" id="contact-note"></p>
+        </section>
+
+        <section>
+            <h2>Identity Artifacts</h2>
+            <table>
+                <tbody>
+                    <tr>
+                        <th>Assertion token</th>
+                        <td id="token-cell">Unavailable</td>
+                    </tr>
+                    <tr>
+                        <th>Metadata</th>
+                        <td id="metadata-cell"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Next Steps</h2>
+            <div class="actions">
+                <button class="secondary" id="back-btn" type="button">Back to relying party</button>
+                <button class="primary" id="panel-btn" type="button">Adjust sharing policy</button>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const profileTable = document.getElementById('profile-table');
+        const profileNote = document.getElementById('profile-note');
+        const contactTable = document.getElementById('contact-table');
+        const contactNote = document.getElementById('contact-note');
+        const tokenCell = document.getElementById('token-cell');
+        const metadataCell = document.getElementById('metadata-cell');
+        const backBtn = document.getElementById('back-btn');
+        const panelBtn = document.getElementById('panel-btn');
+
+        function loadPayload() {
+            const raw = localStorage.getItem('cipheraDemoPayload');
+            if (!raw) {
+                statusEl.textContent = 'No profile payload detected. Start again from the relying party login.';
+                return null;
+            }
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                statusEl.textContent = 'Error loading payload. Re-initiate the flow.';
+                console.error('Failed to parse demo payload', error);
+                return null;
+            }
+        }
+
+        function renderProfile(payload) {
+            const profile = payload.profile || {};
+            const rows = [];
+            rows.push(['Name', badgeValue(profile.name, payload.profile?.metadata?.nameMode)]);
+            rows.push(['Email', badgeValue(profile.email, payload.profile?.metadata?.emailMode)]);
+            rows.push(['Phone', badgeValue(profile.phone, payload.profile?.metadata?.phoneMode)]);
+            rows.push(['Address', badgeValue(profile.address, payload.profile?.metadata?.addressMode)]);
+            profileTable.innerHTML = rows.map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join('');
+
+            const descriptors = [];
+            Object.entries(payload.profile?.metadata || {}).forEach(([key, mode]) => {
+                descriptors.push(`${key.replace('Mode', '')}: ${mode}`);
+            });
+            profileNote.textContent = `Profile delivered with policies — ${descriptors.join(', ')}.`;
+        }
+
+        function badgeValue(value, mode) {
+            if (!value) {
+                return '<span class="helper">Not shared</span>';
+            }
+            const label = mode === 'alias' ? 'alias' : (mode === 'none' ? 'withheld' : 'actual');
+            return `${value} <span class="badge">${label}</span>`;
+        }
+
+        function renderContact(payload) {
+            const contact = payload.contact || {};
+            const rows = [];
+            if (contact.mode === 'token') {
+                rows.push(['Channel', 'Token request']);
+                rows.push(['Token', contact.contactToken || 'Not provided']);
+                rows.push(['Reach out', 'Submit token to CiphERA relay API']);
+                contactNote.textContent = 'Merchant must call the CiphERA contact relay with supplied token to request communication.';
+            } else {
+                rows.push(['Channel', 'Relay']);
+                rows.push(['Relay email', contact.relayEmail || 'Unavailable']);
+                rows.push(['Relay phone', contact.relayPhone || 'Not provided']);
+                rows.push(['Token (fallback)', contact.contactToken || 'Request not issued']);
+                contactNote.textContent = 'Relay addresses route through CiphERA; direct contact to primary inbox or device is never exposed.';
+            }
+            contactTable.innerHTML = rows.map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join('');
+        }
+
+        function renderArtifacts(payload) {
+            tokenCell.textContent = payload.token || 'Not supplied';
+            metadataCell.textContent = payload.issuedAt ? `Profile issued ${new Date(payload.issuedAt).toLocaleString()}` : 'n/a';
+        }
+
+        function init() {
+            const payload = loadPayload();
+            if (!payload) {
+                return;
+            }
+            statusEl.textContent = 'Profile received from CiphERA relying party hand-off.';
+            renderProfile(payload);
+            renderContact(payload);
+            renderArtifacts(payload);
+        }
+
+        backBtn.addEventListener('click', () => {
+            window.location.href = 'demo-login.html';
+        });
+
+        panelBtn.addEventListener('click', () => {
+            window.location.href = 'panel.html';
+        });
+
+        init();
+    </script>
+</body>
+</html>

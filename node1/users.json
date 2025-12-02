@@ -1,1 +1,38 @@
-{"me@ankkiyy.com": {"name": "Ankit Kanaiyalal Prajapati", "face_slug": "ankit-prajapati-me", "sample_count": 10, "profile": {"first_name": "Ankit", "middle_name": "Kanaiyalal", "last_name": "Prajapati", "phone": "+447553559896", "address_line1": "39, Graham Road, Harrow", "address_line2": null, "city": "London", "state": "England", "postal_code": "HA3 5RP", "country": "United Kingdom", "classification": null}}, "itsme@mandeep.com": {"name": "mandeep singh", "signature": "73e12073482202daa6e83243f256552d878e69af3bd40960edadeb9a5b3d066b", "profile": {"first_name": "mandeep", "middle_name": null, "last_name": "singh", "phone": "00880200", "address_line1": "74", "address_line2": "middlesex", "city": "london", "state": "greater london", "postal_code": "ec123b", "country": "United Kingdom", "classification": {"label": "mandeep", "probability": 0.9971, "predictions": [{"label": "background", "probability": 0.0002}, {"label": "ankit", "probability": 0.0001}, {"label": "abin", "probability": 0.0007}, {"label": "bashistha", "probability": 0.0001}, {"label": "achu", "probability": 0}, {"label": "fake", "probability": 0}, {"label": "krupesh", "probability": 0.0017}, {"label": "mandeep", "probability": 0.9971}], "timestamp": "2025-11-18T14:20:12.151Z"}}}}
+{
+  "me@ankkiyy.com": {
+    "name": "Ankit Kanaiyalal Prajapati",
+    "face_slug": "ankit-prajapati-me",
+    "sample_count": 10,
+    "profile": {
+      "first_name": "Ankit",
+      "middle_name": "Kanaiyalal",
+      "last_name": "Prajapati",
+      "phone": "+447553559896",
+      "address_line1": "39, Graham Road, Harrow",
+      "address_line2": null,
+      "city": "London",
+      "state": "England",
+      "postal_code": "HA3 5RP",
+      "country": "United Kingdom",
+      "classification": null
+    }
+  },
+  "lawlight172@gmail.com": {
+    "name": "Lawlight Ramen Abcs",
+    "face_slug": "lawlight-abcs-lawlight172",
+    "sample_count": 10,
+    "profile": {
+      "first_name": "Lawlight",
+      "middle_name": "Ramen",
+      "last_name": "Abcs",
+      "phone": "+446351693363",
+      "address_line1": "cjhdsvcdjcgigru",
+      "address_line2": "kjbejhcevjcv",
+      "city": "bzdhjcbdsjhcb",
+      "state": "dvdv",
+      "postal_code": "vdsvrsv",
+      "country": "dvfvvv",
+      "classification": null
+    }
+  }
+}

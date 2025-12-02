@@ -23,5 +23,10 @@ start "CiphERA Gateway" cmd /k "cd /d %ROOT_DIR%\gateway && set SECRET=CIPHERA_K
 echo [INFO] Serving web assets from /web on http://127.0.0.1:8080 ...
 start "CiphERA Web" cmd /k "cd /d %ROOT_DIR%\web && python -m http.server 8080"
 
+echo [INFO] Allowing web server to initialise...
+timeout /t 2 /nobreak >nul
+echo [INFO] Opening demo portal in your default browser.
+start "" "http://127.0.0.1:8080/"
+
 echo [INFO] All components launched. Close their windows to stop services.
 endlocal

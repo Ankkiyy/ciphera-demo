@@ -109,7 +109,7 @@
             </div>
             <div id="identity"></div>
             <div class="actions" id="continue-wrapper">
-                <button class="primary" type="button" id="continue-btn">Continue to Callback</button>
+                <button class="primary" type="button" id="continue-btn">Continue to Identity Panel</button>
             </div>
         </section>
     </main>
@@ -262,7 +262,7 @@
                 return;
             }
             const encoded = encodeURIComponent(pendingToken);
-            window.location.href = `callback.html?token=${encoded}`;
+            window.location.href = `panel.html?token=${encoded}`;
         });
         setupCamera();
         window.addEventListener('beforeunload', () => {

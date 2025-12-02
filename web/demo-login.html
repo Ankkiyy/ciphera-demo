@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Relying Party Login</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 3rem 1rem;
+        }
+        main {
+            width: 100%;
+            max-width: 960px;
+            background: rgba(15, 23, 42, 0.92);
+            border-radius: 1rem;
+            box-shadow: 0 25px 60px rgba(8, 47, 73, 0.65);
+            padding: 2.25rem;
+            display: grid;
+            gap: 2rem;
+        }
+        h1, h2 {
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+        }
+        section {
+            background: rgba(2, 6, 23, 0.65);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            display: grid;
+            gap: 1.25rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 0.65rem 0.75rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+            font-size: 0.95rem;
+        }
+        th {
+            color: #38bdf8;
+            width: 30%;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 0.8rem;
+            padding: 0.85rem 1.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        button.primary {
+            background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+            color: #020617;
+        }
+        button.secondary {
+            background: rgba(148, 163, 184, 0.25);
+            color: #e2e8f0;
+        }
+        .status {
+            min-height: 1.5rem;
+            color: #38bdf8;
+        }
+        a {
+            color: #38bdf8;
+        }
+        .helper {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>Demo Relying Party Login</h1>
+            <p class="helper">Review the profile packet that will be sent to the sample ecommerce storefront.</p>
+            <div id="status" class="status"></div>
+        </header>
+
+        <section>
+            <h2>Profile Snapshot</h2>
+            <table>
+                <tbody id="profile-table"></tbody>
+            </table>
+            <p class="helper" id="policy-note"></p>
+        </section>
+
+        <section>
+            <h2>Contact Envelope</h2>
+            <table>
+                <tbody id="contact-table"></tbody>
+            </table>
+            <p class="helper">Merchants must respect the policy above. Tokens expire on verification and must be exchanged via CiphERA.</p>
+        </section>
+
+        <section>
+            <h2>Continue</h2>
+            <div class="actions">
+                <button class="secondary" id="panel-btn" type="button">Return to panel</button>
+                <button class="primary" id="proceed-btn" type="button">Send profile to demo store</button>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const profileTable = document.getElementById('profile-table');
+        const contactTable = document.getElementById('contact-table');
+        const proceedBtn = document.getElementById('proceed-btn');
+        const panelBtn = document.getElementById('panel-btn');
+        const policyNote = document.getElementById('policy-note');
+
+        function loadConfig() {
+            const raw = localStorage.getItem('cipheraPanelConfig');
+            if (!raw) {
+                statusEl.textContent = 'No sharing policy available. Configure settings in the identity panel first.';
+                proceedBtn.disabled = true;
+                return null;
+            }
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                statusEl.textContent = 'Configuration corrupted. Reset via the identity panel.';
+                proceedBtn.disabled = true;
+                return null;
+            }
+        }
+
+        function valueFromMode(field) {
+            if (!field) return '';
+            if (field.mode === 'alias') return field.alias || '';
+            if (field.mode === 'none') return '';
+            return field.actual || '';
+        }
+
+        function describeMode(field, label) {
+            if (!field) return `${label}: not provided.`;
+            if (field.mode === 'alias') return `${label} shared as alias.`;
+            if (field.mode === 'none') return `${label} withheld.`;
+            return `${label} shared as actual.`;
+        }
+
+        function renderProfile(config) {
+            const rows = [];
+            const identity = config.identity || {};
+            rows.push(['Display name', valueFromMode(identity.name) || '—']);
+            rows.push(['Email', valueFromMode(identity.email) || '—']);
+            rows.push(['Phone', valueFromMode(identity.phone) || '—']);
+            rows.push(['Address', valueFromMode(identity.address) || '—']);
+            profileTable.innerHTML = rows.map(([label, value]) => {
+                return `<tr><th>${label}</th><td>${value}</td></tr>`;
+            }).join('');
+
+            const notes = [
+                describeMode(identity.name, 'Name'),
+                describeMode(identity.email, 'Email'),
+                describeMode(identity.phone, 'Phone'),
+                describeMode(identity.address, 'Address'),
+            ];
+            policyNote.textContent = notes.join(' ');
+        }
+
+        function renderContact(config) {
+            const rows = [];
+            const contact = config.contact || {};
+            if (contact.mode === 'token') {
+                rows.push(['Contact mode', 'Token-based request']);
+                rows.push(['Contact token', contact.contactToken || 'Unavailable']);
+                rows.push(['Relay email', 'Not shared']);
+                rows.push(['Relay phone', 'Not shared']);
+            } else {
+                rows.push(['Contact mode', 'Relay channel']);
+                rows.push(['Relay email', contact.relayEmail || 'relay unavailable']);
+                rows.push(['Relay phone', contact.relayPhone || 'not provided']);
+                rows.push(['Fallback token', contact.contactToken || 'Generate if needed']);
+            }
+            contactTable.innerHTML = rows.map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join('');
+        }
+
+        function buildPayload(config) {
+            const identity = config.identity || {};
+            return {
+                issuedAt: config.updatedAt || new Date().toISOString(),
+                token: config.token || localStorage.getItem('cipheraPanelLastToken') || null,
+                profile: {
+                    name: valueFromMode(identity.name) || null,
+                    email: valueFromMode(identity.email) || null,
+                    phone: valueFromMode(identity.phone) || null,
+                    address: valueFromMode(identity.address) || null,
+                    metadata: {
+                        nameMode: identity.name?.mode || 'actual',
+                        emailMode: identity.email?.mode || 'actual',
+                        phoneMode: identity.phone?.mode || 'actual',
+                        addressMode: identity.address?.mode || 'actual',
+                    },
+                },
+                contact: {
+                    mode: config.contact?.mode || 'relay',
+                    relayEmail: config.contact?.relayEmail || null,
+                    relayPhone: config.contact?.relayPhone || null,
+                    contactToken: config.contact?.contactToken || null,
+                },
+            };
+        }
+
+        function init() {
+            const config = loadConfig();
+            if (!config) return;
+            proceedBtn.disabled = false;
+            renderProfile(config);
+            renderContact(config);
+            statusEl.textContent = `Policy last updated ${new Date(config.updatedAt || Date.now()).toLocaleString()}.`;
+
+            proceedBtn.addEventListener('click', () => {
+                const payload = buildPayload(config);
+                localStorage.setItem('cipheraDemoPayload', JSON.stringify(payload));
+                window.location.href = 'demo-store.html';
+            });
+        }
+
+        panelBtn.addEventListener('click', () => {
+            window.location.href = 'panel.html';
+        });
+
+        init();
+    </script>
+</body>
+</html>

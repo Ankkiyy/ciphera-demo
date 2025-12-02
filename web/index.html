@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CiphERA Demo Hub</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: radial-gradient(circle at top left, #1d4ed8 0%, #0f172a 42%, #020617 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 3rem 1.5rem 4rem;
+        }
+        main {
+            width: 100%;
+            max-width: 1080px;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 1.25rem;
+            box-shadow: 0 35px 90px rgba(8, 47, 73, 0.65);
+            padding: 2.75rem 3rem;
+            display: grid;
+            gap: 2.5rem;
+        }
+        header {
+            text-align: center;
+            display: grid;
+            gap: 0.75rem;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 2.5rem;
+        }
+        header p {
+            margin: 0;
+            color: #94a3b8;
+            font-size: 1rem;
+        }
+        .dash-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.75rem;
+        }
+        .panel {
+            background: rgba(2, 6, 23, 0.68);
+            border-radius: 1rem;
+            padding: 2rem;
+            display: grid;
+            gap: 1.25rem;
+            border: 1px solid rgba(56, 189, 248, 0.08);
+        }
+        .panel h2 {
+            margin: 0;
+            font-size: 1.6rem;
+        }
+        .panel p {
+            margin: 0;
+            color: #cbd5f5;
+            line-height: 1.5;
+        }
+        .actions {
+            display: grid;
+            gap: 0.75rem;
+        }
+        .actions a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.9rem 1.65rem;
+            border-radius: 0.85rem;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+        .actions a.primary {
+            background: linear-gradient(135deg, #22d3ee, #0ea5e9);
+            color: #020617;
+            box-shadow: 0 12px 22px rgba(34, 211, 238, 0.3);
+        }
+        .actions a.secondary {
+            background: rgba(148, 163, 184, 0.2);
+            color: #f8fafc;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+        }
+        .actions a:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 18px 30px rgba(14, 165, 233, 0.25);
+        }
+        footer {
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        @media (max-width: 720px) {
+            main {
+                padding: 2.25rem 1.75rem;
+            }
+            header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>CiphERA Demo Control Center</h1>
+            <p>Choose a path to explore the identity platform or the sample ecommerce relying party.</p>
+        </header>
+        <div class="dash-grid">
+            <section class="panel">
+                <h2>CiphERA Identity</h2>
+                <p>Enroll new users and experiment with biometric sign-in using the core CiphERA gateway.</p>
+                <div class="actions">
+                    <a class="primary" href="register.html">Register</a>
+                    <a class="secondary" href="login.html">Sign In</a>
+                </div>
+            </section>
+            <section class="panel">
+                <h2>Demo Store Journey</h2>
+                <p>Walk through the relying-party flow to deliver a consented profile to the sample storefront.</p>
+                <div class="actions">
+                    <a class="primary" href="demo-register.html">Demo Store Registration</a>
+                    <a class="secondary" href="demo-login.html">Demo Store Login</a>
+                    <a class="secondary" href="demo-store.html">Storefront Access</a>
+                </div>
+            </section>
+        </div>
+        <footer>Tip: Bookmark this hub for quick access to every component of the demo experience.</footer>
+    </main>
+</body>
+</html>
